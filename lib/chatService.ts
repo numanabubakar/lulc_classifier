@@ -7,7 +7,7 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+const GEMINI_API_KEY = "AIzaSyBIRDpJfOH7ToOyXwkWv9pjr7P4T-JqHvU";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
 
 const SYSTEM_PROMPT = `You are the "LULC Expert Assistant", a specialized AI for a Land Use & Land Cover Recognition web application.

@@ -134,7 +134,7 @@ export function LulcChatbot({ currentResult }: LulcChatbotProps) {
 
           {/* Window */}
           <div
-            className="relative z-10 w-full sm:w-[420px] h-[85vh] sm:h-[600px] sm:mr-6 sm:mb-6 flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden float-in"
+            className="relative z-10 w-full sm:w-[420px] h-[85vh] sm:h-[600px] max-h-[90vh] sm:max-h-[calc(100vh-3rem)] sm:mr-6 sm:mb-6 flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden float-in"
             style={{
               background: 'rgba(10, 15, 35, 0.95)',
               backdropFilter: 'blur(20px)',

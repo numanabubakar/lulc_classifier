@@ -7,7 +7,7 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyBIRDpJfOH7ToOyXwkWv9pjr7P4T-JqHvU";
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 const PRIMARY_MODEL = "gemini-3-flash-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
 
@@ -30,6 +30,10 @@ export class ChatService {
     currentResult: PredictionResult | null,
     history: ChatMessage[] = []
   ): Promise<string> {
+    if (!GEMINI_API_KEY) {
+      return "I'm sorry, the chatbot is not configured. Please set the NEXT_PUBLIC_GEMINI_API_KEY environment variable in your .env file.";
+    }
+
     try {
       return await this.attemptFetch(PRIMARY_MODEL, text, currentResult, history);
     } catch (primaryError: any) {

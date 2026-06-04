@@ -8,11 +8,15 @@ import base64
 import matplotlib.pyplot as plt
 from io import BytesIO
 import PIL.Image
+import logging
 
 from pytorch_grad_cam import GradCAM, GradCAMPlusPlus
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from lime import lime_image
 from skimage.segmentation import mark_boundaries
+
+# Set up logging
+logger = logging.getLogger("lulc-explainers")
 
 def array_to_base64(img_array):
     """Convert numpy RGB array to base64 jpeg."""
@@ -50,8 +54,9 @@ def get_saliency_map(model, image_tensor):
     saliency_heatmap = cv2.applyColorMap(np.uint8(255 * saliency), cv2.COLORMAP_JET)
     saliency_heatmap = cv2.cvtColor(saliency_heatmap, cv2.COLOR_BGR2RGB)
     
-    # Resize to 224x224 just in case
-    saliency_heatmap = cv2.resize(saliency_heatmap, (224, 224))
+    # Resize to original tensor size for consistency
+    _, _, H, W = image_tensor.shape
+    saliency_heatmap = cv2.resize(saliency_heatmap, (W, H))
     
     return array_to_base64(saliency_heatmap)
 
@@ -61,17 +66,28 @@ def get_gradcam_maps(model, image_tensor, orig_image_np):
     # Target layer for AMFRNet is the last block
     target_layers = [model.block3]
     
+    # Normalize original image for overlay
+    orig_img_norm = orig_image_np.astype(np.float32) / 255.0
+    h, w = orig_img_norm.shape[:2]
+    
     # 1. GradCAM
     cam_algo = GradCAM(model=model, target_layers=target_layers)
     grayscale_cam = cam_algo(input_tensor=image_tensor, targets=None)[0]
     
-    # Overlay on original image
-    orig_img_norm = orig_image_np.astype(np.float32) / 255.0
+    # Force resize grayscale_cam to match orig_img_norm exactly to avoid broadcast errors
+    if grayscale_cam.shape[0] != h or grayscale_cam.shape[1] != w:
+        logger.warning(f"[explainers] Shape mismatch! Resizing GradCAM heatmap from {grayscale_cam.shape} to ({h}, {w})")
+        grayscale_cam = cv2.resize(grayscale_cam, (w, h))
+        
     cam_image = show_cam_on_image(orig_img_norm, grayscale_cam, use_rgb=True)
     
     # 2. GradCAM++
     cam_plus_algo = GradCAMPlusPlus(model=model, target_layers=target_layers)
     grayscale_cam_plus = cam_plus_algo(input_tensor=image_tensor, targets=None)[0]
+    
+    if grayscale_cam_plus.shape[0] != h or grayscale_cam_plus.shape[1] != w:
+        grayscale_cam_plus = cv2.resize(grayscale_cam_plus, (w, h))
+        
     cam_plus_image = show_cam_on_image(orig_img_norm, grayscale_cam_plus, use_rgb=True)
     
     return array_to_base64(cam_image), array_to_base64(cam_plus_image)
@@ -120,33 +136,39 @@ def generate_all_explanations(model, preprocessor, image_tensor, image_bytes, mo
     """Wrapper function to generate all maps and return a dict of base64 strings."""
     device = image_tensor.device
     
+    # Dynamically determine the target size from the image tensor (1, 3, H, W)
+    _, _, H, W = image_tensor.shape
+    target_size = (W, H) # PIL uses (width, height)
+    
+    logger.info(f"[explainers] Target size for explanations: {target_size}")
+    
     # Original image decoding for overlay
     orig_pil = PIL.Image.open(BytesIO(image_bytes)).convert("RGB")
-    orig_pil = orig_pil.resize((224, 224))
+    orig_pil = orig_pil.resize(target_size)
     orig_np = np.array(orig_pil)
     
     result = {}
     
     try:
-        print("[explainers] generating Saliency...")
+        logger.info("[explainers] generating Saliency...")
         saliency_b64 = get_saliency_map(model, image_tensor)
         result["Saliency"] = f"data:image/jpeg;base64,{saliency_b64}"
     except Exception as e:
-        print(f"[explainers] Saliency failed: {e}")
+        logger.error(f"[explainers] Saliency failed: {e}")
         
     try:
-        print("[explainers] generating GradCAM & GradCAM++...")
+        logger.info("[explainers] generating GradCAM & GradCAM++...")
         gc_b64, gcp_b64 = get_gradcam_maps(model, image_tensor, orig_np)
         result["GradCAM"] = f"data:image/jpeg;base64,{gc_b64}"
         result["GradCAM++"] = f"data:image/jpeg;base64,{gcp_b64}"
     except Exception as e:
-        print(f"[explainers] GradCAM failed: {e}")
+        logger.error(f"[explainers] GradCAM failed: {e}")
         
     try:
-        print("[explainers] generating LIME...")
+        logger.info("[explainers] generating LIME...")
         lime_b64 = get_lime_map(model, preprocessor, image_bytes, orig_np, device, model_type)
         result["LIME"] = f"data:image/jpeg;base64,{lime_b64}"
     except Exception as e:
-        print(f"[explainers] LIME failed: {e}")
+        logger.error(f"[explainers] LIME failed: {e}")
     
     return result

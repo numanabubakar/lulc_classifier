@@ -7,8 +7,9 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-const GEMINI_API_KEY = "AIzaSyBIRDpJfOH7ToOyXwkWv9pjr7P4T-JqHvU";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyBIRDpJfOH7ToOyXwkWv9pjr7P4T-JqHvU";
+const PRIMARY_MODEL = "gemini-3-flash-preview";
+const FALLBACK_MODEL = "gemini-2.5-flash";
 
 const SYSTEM_PROMPT = `You are the "LULC Expert Assistant", a specialized AI for a Land Use & Land Cover Recognition web application.
 
@@ -20,83 +21,92 @@ STRICT RULES:
 `;
 
 export class ChatService {
+  private static getUrl(model: string) {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+  }
+
   static async sendMessage(
     text: string,
     currentResult: PredictionResult | null,
     history: ChatMessage[] = []
   ): Promise<string> {
     try {
-      // Build context from current prediction
-      let context = 'User is using the LULC Recognition web application.';
-      if (currentResult) {
-        const isMulti = currentResult.classification_mode === 'multi';
-        const labels = isMulti
-          ? (currentResult.predicted_labels ?? []).join(', ')
-          : (currentResult.predicted_class ?? 'Unknown');
+      return await this.attemptFetch(PRIMARY_MODEL, text, currentResult, history);
+    } catch (primaryError: any) {
+      console.warn(`[Chat] Primary model (${PRIMARY_MODEL}) failed, trying fallback (${FALLBACK_MODEL}). Error:`, primaryError.message);
 
-        context += ` \nCURRENT PREDICTION INFO:
+      try {
+        return await this.attemptFetch(FALLBACK_MODEL, text, currentResult, history);
+      } catch (fallbackError: any) {
+        console.error('[Chat] All Gemini models failed:', fallbackError);
+
+        if (fallbackError.message.includes('403')) {
+          return "I'm having trouble with my API key. It might have been revoked or restricted. Please check your .env settings.";
+        }
+
+        return "I'm currently having trouble reaching my neural knowledge base. Please check your internet connection and try again.";
+      }
+    }
+  }
+
+  private static async attemptFetch(
+    model: string,
+    text: string,
+    currentResult: PredictionResult | null,
+    history: ChatMessage[] = []
+  ): Promise<string> {
+    // Build context
+    let context = 'User is using the LULC Recognition web application.';
+    if (currentResult) {
+      const isMulti = currentResult.classification_mode === 'multi';
+      const labels = isMulti
+        ? (currentResult.predicted_labels ?? []).join(', ')
+        : (currentResult.predicted_class ?? 'Unknown');
+
+      context += ` \nCURRENT PREDICTION INFO:
 - Dataset: ${currentResult.model_type}
 - Classification Mode: ${currentResult.classification_mode || 'single'}
 - Detected: ${labels}`;
 
-        if (isMulti) {
-          context += `
+      if (isMulti) {
+        context += `
 - Uncertainty Score: ${currentResult.uncertainty?.toFixed(4) ?? 'N/A'}
-- Inference Latency: ${currentResult.inference_time_ms?.toFixed(2)}ms
-(Note: Multi-label results do not have a single confidence percentage. Use the uncertainty score instead.)`;
-        } else {
-          context += `
+- Inference Latency: ${currentResult.inference_time_ms?.toFixed(2)}ms`;
+      } else {
+        context += `
 - Confidence: ${currentResult.confidence != null ? (currentResult.confidence * 100).toFixed(2) : 'N/A'}%
 - Inference Time: ${currentResult.inference_time_ms?.toFixed(2)}ms`;
-        }
       }
-
-      // Append conversation history (last 10 messages)
-      if (history.length > 0) {
-        const historyContext = history
-          .map((m) => `${m.sender.toUpperCase()}: ${m.text}`)
-          .join('\n');
-        context += `\n\nPREVIOUS CONVERSATION:\n${historyContext}`;
-      }
-
-      const payload = {
-        contents: [
-          {
-            parts: [
-              {
-                text: `${SYSTEM_PROMPT}\n\nCONTEXT:\n${context}\n\nCURRENT USER QUESTION: ${text}`,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 1024,
-        },
-      };
-
-      const response = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
-      }
-
-      return "I'm processing that information, but I couldn't generate a specific response. Could you rephrase your query?";
-    } catch (error) {
-      console.error('[Chat] Gemini Integration Failed:', error);
-      return "I'm currently having trouble reaching my neural knowledge base. Please check your internet connection and try again.";
     }
+
+    if (history.length > 0) {
+      const historyContext = history.map((m) => `${m.sender.toUpperCase()}: ${m.text}`).join('\n');
+      context += `\n\nPREVIOUS CONVERSATION:\n${historyContext}`;
+    }
+
+    const payload = {
+      contents: [{ parts: [{ text: `${SYSTEM_PROMPT}\n\nCONTEXT:\n${context}\n\nUSER: ${text}` }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+    };
+
+    const response = await fetch(this.getUrl(model), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Gemini API error ${response.status}: ${errorData.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!resultText) {
+      throw new Error("No response generated by the model.");
+    }
+
+    return resultText;
   }
 }

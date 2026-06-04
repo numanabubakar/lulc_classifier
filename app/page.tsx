@@ -208,7 +208,7 @@ export default function Dashboard() {
             {/* Technical Specs — left panel, desktop only */}
             {(hasInput || hasResult) && (
               <div className="hidden lg:block float-in float-in-delay-3">
-                <TechnicalSpecs />
+                <TechnicalSpecs isMulti={isMulti} />
               </div>
             )}
           </aside>
@@ -286,7 +286,7 @@ export default function Dashboard() {
             {/* Technical Specs — below results on mobile */}
             {(hasInput || hasResult) && (
               <div className="lg:hidden mt-2">
-                <TechnicalSpecs />
+                <TechnicalSpecs isMulti={isMulti} />
               </div>
             )}
           </div>

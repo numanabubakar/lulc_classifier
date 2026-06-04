@@ -32,7 +32,7 @@ class LULCPreprocessor:
         
     def get_transforms(self, model_type: str, image_width: int, image_height: int):
         """Get the appropriate transforms based on model type and image size."""
-        if model_type == "eurosat":
+        if model_type in ("eurosat", "mlrsnet", "patternnet"):
             if image_width > 64 or image_height > 64:
                 return transforms.Compose([
                     transforms.Resize((64, 64), interpolation=transforms.InterpolationMode.BILINEAR),

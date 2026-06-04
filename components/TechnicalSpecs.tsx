@@ -1,11 +1,15 @@
 'use client';
 
-export function TechnicalSpecs() {
+interface TechnicalSpecsProps {
+  isMulti?: boolean;
+}
+
+export function TechnicalSpecs({ isMulti = false }: TechnicalSpecsProps) {
   const specs = [
-    { label: 'Architecture', value: 'AMFRNet', details: 'Attention Multi-scale Feature Recognition Network' },
-    { label: 'Parameters', value: '~365K', details: 'Total trainable parameters in the model' },
-    { label: 'FLOPs', value: '~106M', details: 'Floating point operations per inference' },
-    { label: 'Input Size', value: '224×224', details: 'Standard remote sensing image resolution' },
+    { label: 'Architecture', value: isMulti ? 'AMSI-Net' : 'AMFRNet', details: isMulti ? 'Attention Multi-scale Semantic Integration Network' : 'Attention Multi-scale Feature Recognition Network' },
+    { label: 'Parameters', value: isMulti ? '~420K' : '~365K', details: 'Total trainable parameters in the model' },
+    { label: 'FLOPs', value: isMulti ? '~124M' : '~106M', details: 'Floating point operations per inference' },
+    { label: 'Input Size', value: isMulti ? '224×224' : '64×64', details: 'Target resolution for model inference' },
     { label: 'Normalization', value: 'ImageNet', details: 'RGB normalization (μ=[0.485, 0.456, 0.406], σ=[0.229, 0.224, 0.225])' },
   ];
 
